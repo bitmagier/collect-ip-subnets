@@ -1,5 +1,5 @@
 [package]
-name = "identify-ip-subnet-patterns"
+name = "ip-subnet-patterns"
 version = "0.1.0"
 authors = ["bitmagier <bitmagier@mailbox.org>"]
 edition = "2018"
