@@ -1,10 +1,7 @@
 use std::collections::HashMap;
-// use std::env;
 use std::fmt;
 use std::fmt::Formatter;
 use std::io::{self, BufRead};
-
-const DEBUG: bool = true;
 
 #[derive(PartialEq, Eq, Hash)]
 struct IpV4Network {
@@ -80,7 +77,6 @@ fn mark_class_c_nets(addresses: &Vec<[u8; 4]>, hits_needed: usize) -> Vec<IpV4Ne
     const MASK: [u8; 4] = [255, 255, 255, 0];
     for ip in addresses {
         let net = IpV4Network::from_address(&ip, &MASK);
-        if DEBUG { println!("{}", net) }
         *potential_subnets.entry(net).or_insert(0) += 1;
     }
 
@@ -90,7 +86,6 @@ fn mark_class_c_nets(addresses: &Vec<[u8; 4]>, hits_needed: usize) -> Vec<IpV4Ne
             result.push(net);
         }
     }
-    if DEBUG { println!("found {} class C subnet(s))", result.len()) }
     result
 }
 
@@ -143,10 +138,7 @@ fn parse_ipv4(ip: &str) -> Result<[u8; 4], String> {
 // Commandline tool which takes a list of IP V4 addresses as input and returns a list of subnets,
 // from which multiple IP addresses come from, in order to identify attacking network segments
 fn main() {
-    // let args: Vec<String> = env::args().collect();
-    // const OPTION_VERBOSE: &str = "-v";
-    // let verbose = args.contains(&OPTION_VERBOSE.to_string());
-    let verbose = true;
+    let verbose = false;
 
     let number_of_addresses_to_mark_class_c_net = 3;
     let number_of_class_c_nets_to_mark_class_b_net = 6;
@@ -159,15 +151,9 @@ fn main() {
     };
 
     if verbose {
-        println!("Analyzing {} addresses...", addresses.len());
+        println!("Analyzing {:?} addresses...", addresses.len());
         println!("To select a class C (/24) net, it needs 3 matching IP addresses");
         println!("To select a class B (/16) net, it needs 6 matching class C subnets");
-    }
-
-    if DEBUG {
-        for addr in &addresses {
-            println!("{:?}", addr)
-        }
     }
 
     let mut class_c_networks: Vec<IpV4Network> = mark_class_c_nets(&addresses, number_of_addresses_to_mark_class_c_net);
