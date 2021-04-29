@@ -1,24 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Formatter;
 use std::io::{self, BufRead};
 
-#[derive(PartialEq, Eq, Hash)]
+use structopt::StructOpt;
+
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 struct IpV4Network {
     net: [u8; 4],
     mask: [u8; 4],
-}
-
-impl IpV4Network {
-    pub(crate) fn contains_subnet(&self, subnet: &IpV4Network) -> bool {
-        // check mask
-        if self.mask_in_cidr_notation() > subnet.mask_in_cidr_notation() {
-            return false;
-        }
-
-        // compare network (at self.mask bits)
-        self.eq(&IpV4Network::from_address(&subnet.net, &self.mask))
-    }
 }
 
 impl IpV4Network {
@@ -29,23 +19,48 @@ impl IpV4Network {
         }
     }
 
-    fn mask_in_cidr_notation(&self) -> u8 {
-        IpV4Network::count_network_bits(&self.mask)
+    fn from_address_cidr(address: &[u8; 4], mask_cidr: u8) -> IpV4Network {
+        IpV4Network::from_address(
+            address,
+            &IpV4Network::mask_from_cidr(mask_cidr),
+        )
     }
 
-    fn count_network_bits(mask: &[u8; 4]) -> u8 {
+    pub fn contains_subnet(&self, subnet: &IpV4Network) -> bool {
+        // check mask
+        if self.mask_in_cidr_notation() > subnet.mask_in_cidr_notation() {
+            return false;
+        }
+
+        // compare network (at self.mask bits)
+        self.eq(&IpV4Network::from_address(&subnet.net, &self.mask))
+    }
+
+    pub fn mask_in_cidr_notation(&self) -> u8 {
+        self.network_bits()
+    }
+
+    pub fn network_bits(&self) -> u8 {
         let mut network_bits: u8 = 0;
-        for i in 0..4 {
-            let bits = IpV4Network::num_high_zero_bits(mask[i]);
+        for i in 0..=3 {
+            let bits = IpV4Network::num_high_zero_bits(self.mask[i]);
             network_bits += bits;
             if bits < 8 { break; }
         }
         network_bits
     }
 
+    /// returns the number of IP addresses, the subnet contains
+    pub fn address_space_size(&self) -> u32 {
+        // 32 -> 1  | 2 ^ 0 = 1
+        // 31 -> 2  | 2 ^ (32 - 31) = 2
+        // 24 -> 256 | 2 ^ (32 - 24) = 256
+        2u32.pow(32 - self.mask_in_cidr_notation() as u32)
+    }
+
     fn num_high_zero_bits(mut n: u8) -> u8 {
         let mut count: u8 = 0;
-        for _bit in 0..8 {
+        for _bit in 0..=7 {
             if n >= 128 {
                 count += 1
             }
@@ -53,8 +68,61 @@ impl IpV4Network {
         }
         count
     }
+
+    fn mask_from_cidr(mask_cidr: u8) -> [u8; 4] {
+        if mask_cidr > 32 { panic!("invalid cidr mask {}", mask_cidr); }
+
+        let mut m = mask_cidr;
+        let m0: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
+        m = (m as i8 - 8).min(0) as u8;
+        let m1: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
+        m = (m as i8 - 8).min(0) as u8;
+        let m2: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
+        m = (m as i8 - 8).min(0) as u8;
+        let m3: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
+        [m0, m1, m2, m3]
+    }
 }
 
+
+fn filter_networks(class_c_networks: HashSet<IpV4Network>, net_elect_percentage: f32) -> HashSet<IpV4Network> {
+
+    // fill higher nets, remove duplicates:
+
+    // all available higher nets (lets say 255.0.0.0 as a upper bound) covering these class_c_networks
+    let mut potential_higher_nets: HashSet<IpV4Network> = HashSet::new();
+    for c in &class_c_networks {
+        for mask in (8..c.mask_in_cidr_notation()).rev() {
+            potential_higher_nets.insert(IpV4Network::from_address_cidr(&c.net, mask));
+        }
+    }
+
+    // fill/sort higher nets by size, biggest first (smallest netmask)
+    let mut higher_nets_sorted_top_down: Vec<IpV4Network> = potential_higher_nets.into_iter().collect();
+    higher_nets_sorted_top_down.sort_by(|a, b| a.mask_in_cidr_notation().cmp(&b.mask_in_cidr_notation()));
+
+    // to compute the result, lets begin with all found class_c_nets
+    let mut result = class_c_networks.clone();
+
+    // go through sorted list of higher nets one by one and check if the condition (number of contained class_c_networks reached net_elect_percentage) is met
+    // if not, then forget about the net
+    // if so, then put this net into result-set and also remove all matching class_c_networks from result-set
+    for higher_net in higher_nets_sorted_top_down {
+        let mut matching_class_c_nets: HashSet<&IpV4Network> = HashSet::new();
+        for c in &class_c_networks {
+            if higher_net.contains_subnet(c) {
+                matching_class_c_nets.insert(c);
+            }
+        }
+        let pct_matching_class_c: f32 = matching_class_c_nets.len() as f32 / higher_net.address_space_size() as f32;
+        if pct_matching_class_c >= net_elect_percentage {
+            result.retain(|e| !matching_class_c_nets.contains(e));
+            result.insert(higher_net);
+        }
+    }
+
+    return result;
+}
 
 impl fmt::Display for IpV4Network {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -62,58 +130,33 @@ impl fmt::Display for IpV4Network {
     }
 }
 
-
-fn read_stdin() -> Vec<String> {
-    let mut result: Vec<String> = Vec::new();
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        result.push(line.unwrap());
-    }
-    result
-}
-
-fn mark_class_c_nets(addresses: &Vec<[u8; 4]>, hits_needed: usize) -> Vec<IpV4Network> {
-    let mut potential_subnets: HashMap<IpV4Network, usize> = HashMap::new();
+fn mark_class_c_nets(addresses: &HashSet<[u8; 4]>, hits_needed: u8) -> HashSet<IpV4Network> {
+    let mut potential_subnets: HashMap<IpV4Network, u8> = HashMap::new();
     const MASK: [u8; 4] = [255, 255, 255, 0];
     for ip in addresses {
         let net = IpV4Network::from_address(&ip, &MASK);
         *potential_subnets.entry(net).or_insert(0) += 1;
     }
 
-    let mut result = Vec::new();
+    let mut result = HashSet::new();
     for (net, hits) in potential_subnets {
         if hits >= hits_needed {
-            result.push(net);
+            result.insert(net);
         }
     }
     result
 }
 
-fn mark_class_b_nets(class_c_nets: &Vec<IpV4Network>, hits_needed: usize) -> Vec<IpV4Network> {
-    let mut potential_class_b_nets: HashMap<IpV4Network, usize> = HashMap::new();
-    const MASK: [u8; 4] = [255, 255, 0, 0];
-    for c_net in class_c_nets {
-        let class_b_net = IpV4Network::from_address(&c_net.net, &MASK);
-        *potential_class_b_nets.entry(class_b_net).or_insert(0) += 1;
-    }
-
-    let mut result = Vec::new();
-    for (net, hits) in potential_class_b_nets {
-        if hits >= hits_needed {
-            result.push(net);
-        }
-    }
-    return result;
-}
-
-fn parse_ipv4_addresses(raw_addresses: Vec<String>) -> Result<Vec<[u8; 4]>, String> {
-    let mut result = Vec::with_capacity(raw_addresses.len());
+fn parse_ipv4_addresses(raw_addresses: Vec<String>) -> Result<HashSet<[u8; 4]>, String> {
+    let mut result = HashSet::with_capacity(raw_addresses.len());
 
     for a in raw_addresses.iter() {
-        match parse_ipv4(a) {
-            Ok(a) => result.push(a),
-            Err(error) => return Err(error)
-        };
+        if !a.is_empty() {
+            match parse_ipv4(a) {
+                Ok(a) => result.insert(a),
+                Err(error) => return Err(error)
+            };
+        }
     }
 
     Ok(result)
@@ -125,7 +168,7 @@ fn parse_ipv4(ip: &str) -> Result<[u8; 4], String> {
     if parts.len() != 4 {
         return Err("not 4 parts separated by a '.'".to_string());
     }
-    for i in 0..4 {
+    for i in 0..=3 {
         result[i] =
             match parts[i].parse::<u8>() {
                 Ok(n) => n,
@@ -135,45 +178,53 @@ fn parse_ipv4(ip: &str) -> Result<[u8; 4], String> {
     Ok(result)
 }
 
+fn read_stdin() -> Vec<String> {
+    let mut result = Vec::new();
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        result.push(line.expect("unable to read input line"));
+    }
+    return result;
+}
+
+#[derive(Debug, StructOpt)]
+struct Cli {
+    #[structopt(short, long)]
+    verbose: bool,
+
+    #[structopt(short = "c", long = "threshold_class_c", default_value = "5")]
+    threshold_class_c: u8,
+
+    #[structopt(short = "h", long = "higher_net_kickout_pct", default_value = "51")]
+    higher_net_elect_percentage: f32,
+}
+
 // Commandline tool which takes a list of IP V4 addresses as input and returns a list of subnets,
 // from which multiple IP addresses come from, in order to identify attacking network segments
 fn main() {
-    let verbose = false;
+    let options: Cli = Cli::from_args();
+    if options.verbose { println!("{:?}", options); }
 
-    let number_of_addresses_to_mark_class_c_net = 3;
-    let number_of_class_c_nets_to_mark_class_b_net = 6;
+    let input = read_stdin();
 
-    let input: Vec<String> = read_stdin();
-
-    let addresses: Vec<[u8; 4]> = match parse_ipv4_addresses(input) {
+    let addresses: HashSet<[u8; 4]> = match parse_ipv4_addresses(input) {
         Ok(r) => r,
         Err(e) => panic!("parse failed: {}", e)
     };
 
-    if verbose {
+    if options.verbose {
         println!("Analyzing {:?} addresses...", addresses.len());
-        println!("To select a class C (/24) net, it needs 3 matching IP addresses");
-        println!("To select a class B (/16) net, it needs 6 matching class C subnets");
+        println!("To select a class C (/24) net, it takes {} IP corresponding addresses", options.threshold_class_c);
+        println!("To select a higher class net (/23 and larger), it takes {} percent of contained class-c nets", options.higher_net_elect_percentage);
     }
 
-    let mut class_c_networks: Vec<IpV4Network> = mark_class_c_nets(&addresses, number_of_addresses_to_mark_class_c_net);
-    let class_b_networks = mark_class_b_nets(&class_c_networks, number_of_class_c_nets_to_mark_class_b_net);
+    let class_c_networks: HashSet<IpV4Network> = mark_class_c_nets(&addresses, options.threshold_class_c);
+    let collected_networks: HashSet<IpV4Network> = filter_networks(class_c_networks, options.higher_net_elect_percentage);
 
-    for class_b_net in &class_b_networks {
-        for i in 0 ..class_c_networks.len() {
-            if class_b_net.contains_subnet(&class_c_networks[i]) {
-                class_c_networks.remove(i);
-            }
-        }
-    }
-
-    if verbose {
+    if options.verbose {
         println!("Identified networks:")
     }
-    for x in class_b_networks{
-        println!("{}", x)
-    }
-    for x in class_c_networks{
-        println!("{}", x)
+    for net in collected_networks {
+        println!("{}", net)
     }
 }
