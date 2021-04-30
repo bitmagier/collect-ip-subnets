@@ -245,7 +245,7 @@ struct Cli {
     #[structopt(short = "c", long = "threshold_class_c", default_value = "3")]
     threshold_class_c: u8,
 
-    #[structopt(short = "l", long = "larger_net_coverage_pct", default_value = "0.34")]
+    #[structopt(short = "l", long = "larger_net_coverage_pct", default_value = "0.51")]
     larger_net_select_coverage_percentage: f32,
 }
 
