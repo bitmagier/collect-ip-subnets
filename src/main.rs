@@ -1,9 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::fmt::Formatter;
 use std::io::{self, BufRead};
 
 use structopt::StructOpt;
+use std::borrow::Borrow;
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 struct IpV4Network {
@@ -126,7 +127,7 @@ mod test {
 }
 
 
-fn filter_networks(class_c_networks: HashSet<IpV4Network>, net_elect_percentage: f32) -> HashSet<IpV4Network> {
+fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_coverage_percentage: f32) -> HashSet<IpV4Network> {
 
     // fill higher nets, remove duplicates:
 
@@ -138,9 +139,10 @@ fn filter_networks(class_c_networks: HashSet<IpV4Network>, net_elect_percentage:
         }
     }
 
-    // fill/sort higher nets by size, biggest first (smallest netmask)
-    let mut higher_nets_sorted_top_down: Vec<IpV4Network> = potential_higher_nets.into_iter().collect();
-    higher_nets_sorted_top_down.sort_by(|a, b| a.mask_in_cidr_notation().cmp(&b.mask_in_cidr_notation()));
+    // fill/sort higher nets by size, large ones first (smallest netmask)
+    let mut larger_nets_sorted_top_down: Vec<IpV4Network> = potential_higher_nets.into_iter().collect();
+    larger_nets_sorted_top_down.sort_by(|a, b| a.mask_in_cidr_notation().cmp(&b.mask_in_cidr_notation()));
+    let mut larger_nets_sorted_top_down: VecDeque<IpV4Network> = larger_nets_sorted_top_down.into_iter().collect();
 
     // to compute the result, lets begin with all found class_c_nets
     let mut result = class_c_networks.clone();
@@ -148,19 +150,26 @@ fn filter_networks(class_c_networks: HashSet<IpV4Network>, net_elect_percentage:
     // go through sorted list of higher nets one by one and check if the condition (number of contained class_c_networks reached net_elect_percentage) is met
     // if not, then forget about the net
     // if so, then put this net into result-set and also remove all matching class_c_networks from result-set
-    for higher_net in higher_nets_sorted_top_down {
-        let mut matching_class_c_nets: HashSet<&IpV4Network> = HashSet::new();
-        for c in &class_c_networks {
-            if higher_net.contains_subnet(c) {
-                matching_class_c_nets.insert(c);
-            }
-        }
-        let pct_matching_class_c: f32 = matching_class_c_nets.len() as f32 / higher_net.address_space_size() as f32;
-        if pct_matching_class_c >= net_elect_percentage {
+    //for higher_net in larger_nets_sorted_top_down {
+    while !larger_nets_sorted_top_down.is_empty() {
+        let larger_net = match larger_nets_sorted_top_down.pop_front() {
+            Some(e) => e,
+            None => panic!()
+        };
+
+        let matching_class_c_nets: HashSet<&IpV4Network> = class_c_networks.borrow().into_iter()
+            .filter(|e| larger_net.contains_subnet(e))
+            .collect();
+
+        let pct_matching_class_c: f32 = (matching_class_c_nets.len() * 256) as f32 / larger_net.address_space_size() as f32;
+
+        if pct_matching_class_c >= larger_net_select_coverage_percentage {
+            result.insert(larger_net);
             result.retain(|e| !matching_class_c_nets.contains(e));
-            result.insert(higher_net);
+            larger_nets_sorted_top_down.retain(|e| !larger_net.contains_subnet(e));
         }
     }
+
 
     return result;
 }
@@ -233,11 +242,11 @@ struct Cli {
     #[structopt(short, long)]
     verbose: bool,
 
-    #[structopt(short = "c", long = "threshold_class_c", default_value = "5")]
+    #[structopt(short = "c", long = "threshold_class_c", default_value = "3")]
     threshold_class_c: u8,
 
-    #[structopt(short = "h", long = "higher_net_kickout_pct", default_value = "0.1")]
-    higher_net_elect_percentage: f32,
+    #[structopt(short = "l", long = "larger_net_coverage_pct", default_value = "0.34")]
+    larger_net_select_coverage_percentage: f32,
 }
 
 // Commandline tool which takes a list of IP V4 addresses as input and returns a list of subnets,
@@ -256,11 +265,11 @@ fn main() {
     if options.verbose {
         println!("Analyzing {:?} addresses...", addresses.len());
         println!("To select a class C (/24) net, it takes {} IP corresponding addresses", options.threshold_class_c);
-        println!("To select a higher class net (/23 upwards), it takes {} percent of contained class-c nets", options.higher_net_elect_percentage);
+        println!("To select a higher class net (/23 upwards), it takes {} percent of contained class-c nets", options.larger_net_select_coverage_percentage);
     }
 
     let class_c_networks: HashSet<IpV4Network> = mark_class_c_nets(&addresses, options.threshold_class_c);
-    let collected_networks: HashSet<IpV4Network> = filter_networks(class_c_networks, options.higher_net_elect_percentage);
+    let collected_networks: HashSet<IpV4Network> = collect_networks(class_c_networks, options.larger_net_select_coverage_percentage);
 
     if options.verbose {
         println!("Identified networks:")
