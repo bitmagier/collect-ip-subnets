@@ -14,7 +14,10 @@ struct IpV4Network {
 impl IpV4Network {
     fn from_address(address: &[u8; 4], mask: &[u8; 4]) -> IpV4Network {
         IpV4Network {
-            net: [address[0] & mask[0], address[1] & mask[1], address[2] & mask[2], address[3] & mask[3]],
+            net: [address[0] & mask[0],
+                address[1] & mask[1],
+                address[2] & mask[2],
+                address[3] & mask[3]],
             mask: *mask,
         }
     }
@@ -40,14 +43,24 @@ impl IpV4Network {
         self.network_bits()
     }
 
+    // 255.0.0.0 => 1111 1111 0000 0000 0000 0000 0000 0000	=> 8
     pub fn network_bits(&self) -> u8 {
         let mut network_bits: u8 = 0;
         for i in 0..=3 {
-            let bits = IpV4Network::num_high_zero_bits(self.mask[i]);
+            let bits = IpV4Network::num_high_one_bits(self.mask[i]);
             network_bits += bits;
             if bits < 8 { break; }
         }
         network_bits
+    }
+
+    fn num_high_one_bits(mut n: u8) -> u8 {
+        let mut count: u8 = 0;
+        while n > 0 {
+            count += 1;
+            n = n << 1;
+        }
+        count
     }
 
     /// returns the number of IP addresses, the subnet contains
@@ -58,29 +71,57 @@ impl IpV4Network {
         2u32.pow(32 - self.mask_in_cidr_notation() as u32)
     }
 
-    fn num_high_zero_bits(mut n: u8) -> u8 {
-        let mut count: u8 = 0;
-        for _bit in 0..=7 {
-            if n >= 128 {
-                count += 1
-            }
-            n = n << 1;
-        }
-        count
-    }
 
+    // 24 -> 255.255.255.0
+    // 23 -> 255.255.254.0
+    // 22 -> 255.255.252.0
     fn mask_from_cidr(mask_cidr: u8) -> [u8; 4] {
-        if mask_cidr > 32 { panic!("invalid cidr mask {}", mask_cidr); }
+        // 0 -> 0
+        // 1 -> 128
 
-        let mut m = mask_cidr;
-        let m0: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
-        m = (m as i8 - 8).min(0) as u8;
-        let m1: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
-        m = (m as i8 - 8).min(0) as u8;
-        let m2: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
-        m = (m as i8 - 8).min(0) as u8;
-        let m3: u8 = (2u32.pow(m.min(8) as u32) - 1) as u8;
-        [m0, m1, m2, m3]
+        fn convert255(cidr8: u8) -> u8 {
+            match cidr8 {
+                0 => 0,
+                1 => 128,
+                2 => 192,
+                3 => 224,
+                4 => 240,
+                5 => 248,
+                6 => 252,
+                7 => 254,
+                8 => 255,
+                _ => panic!()
+            }
+        }
+
+        if mask_cidr > 32 { panic!("invalid cidr mask {}", mask_cidr); }
+        let c0 = mask_cidr.min(8);
+        let c1 = (mask_cidr as i8 - 8).max(0).min(8) as u8;
+        let c2 = (mask_cidr as i8 - 16).max(0).min(8) as u8;
+        let c3 = (mask_cidr as i8 - 24).max(0).min(8) as u8;
+
+        [convert255(c0), convert255(c1), convert255(c2), convert255(c3)]
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_ip_net_creation() {
+        let net16 = IpV4Network { net: [192, 168, 0, 0], mask: [255, 255, 0, 0] };
+        let net24 = IpV4Network { net: [192, 168, 34, 0], mask: [255, 255, 255, 0] };
+
+        assert_eq!(net16.mask_in_cidr_notation(), 16);
+        assert_eq!(net24.mask_in_cidr_notation(), 24);
+        assert_eq!(net16.contains_subnet(&net24), true);
+        assert_eq!(net16.address_space_size(), 256 * 256);
+        assert_eq!(net24.address_space_size(), 256);
+        assert_eq!(IpV4Network::from_address(&[192, 168, 34, 2], &[255, 255, 255, 0]), net24);
+        assert_eq!(IpV4Network::from_address_cidr(&[192, 168, 34, 2], 24), net24);
+        assert_eq!(IpV4Network::num_high_one_bits(0b1111_1100), 6);
+        assert_eq!(IpV4Network::num_high_one_bits(0b1110_0000), 3);
     }
 }
 
@@ -195,7 +236,7 @@ struct Cli {
     #[structopt(short = "c", long = "threshold_class_c", default_value = "5")]
     threshold_class_c: u8,
 
-    #[structopt(short = "h", long = "higher_net_kickout_pct", default_value = "51")]
+    #[structopt(short = "h", long = "higher_net_kickout_pct", default_value = "0.1")]
     higher_net_elect_percentage: f32,
 }
 
@@ -215,7 +256,7 @@ fn main() {
     if options.verbose {
         println!("Analyzing {:?} addresses...", addresses.len());
         println!("To select a class C (/24) net, it takes {} IP corresponding addresses", options.threshold_class_c);
-        println!("To select a higher class net (/23 and larger), it takes {} percent of contained class-c nets", options.higher_net_elect_percentage);
+        println!("To select a higher class net (/23 upwards), it takes {} percent of contained class-c nets", options.higher_net_elect_percentage);
     }
 
     let class_c_networks: HashSet<IpV4Network> = mark_class_c_nets(&addresses, options.threshold_class_c);
