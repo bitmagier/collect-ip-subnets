@@ -1,10 +1,10 @@
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::fmt::Formatter;
 use std::io::{self, BufRead};
 
 use structopt::StructOpt;
-use std::borrow::Borrow;
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 struct IpV4Network {
@@ -15,10 +15,12 @@ struct IpV4Network {
 impl IpV4Network {
     fn from_address(address: &[u8; 4], mask: &[u8; 4]) -> IpV4Network {
         IpV4Network {
-            net: [address[0] & mask[0],
+            net: [
+                address[0] & mask[0],
                 address[1] & mask[1],
                 address[2] & mask[2],
-                address[3] & mask[3]],
+                address[3] & mask[3]
+            ],
             mask: *mask,
         }
     }
