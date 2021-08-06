@@ -1,6 +1,6 @@
 [package]
 name = "collect-ip-subnets"
-version = "0.2.0"
+version = "1.0.0"
 authors = ["bitmagier <bitmagier@mailbox.org>"]
 edition = "2018"
 
