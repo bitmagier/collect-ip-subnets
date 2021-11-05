@@ -5,7 +5,7 @@ Typical use case: Create a list of potential dangerous subnets from a list of at
 
 Build
 ---
-cargo build --release
+    cargo build --release
 
 Options:
 ---
@@ -14,6 +14,6 @@ Options:
 
 Run Sample
 ---
-$ cat test_input | collect-ip-subnets
-221.181.96.0/22
-221.181.184.0/23
+    $ cat test_input | collect-ip-subnets
+    221.181.96.0/22
+    221.181.184.0/23
