@@ -66,7 +66,7 @@ impl IpV4Network {
         count
     }
 
-    /// returns the number of IP addresses, the subnet contains
+    // returns the number of IP addresses, the subnet contains
     pub fn address_space_size(&self) -> u32 {
         // 32 -> 1  | 2 ^ 0 = 1
         // 31 -> 2  | 2 ^ (32 - 31) = 2
