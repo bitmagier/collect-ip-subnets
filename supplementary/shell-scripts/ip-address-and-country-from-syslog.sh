@@ -6,3 +6,4 @@ while IFS= read -r ip; do
   echo -n "$ip "
   geoiplookup $ip
 done <<< "$ip_list"
+
