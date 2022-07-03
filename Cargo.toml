@@ -1,8 +1,8 @@
 [package]
 name = "collect-ip-subnets"
-version = "1.0.3"
+version = "1.0.4"
 authors = ["bitmagier <bitmagier@mailbox.org>"]
 edition = "2021"
 
 [dependencies]
-structopt = "^0.3"
+structopt = "0"

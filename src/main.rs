@@ -61,7 +61,7 @@ impl IpV4Network {
         let mut count: u8 = 0;
         while n > 0 {
             count += 1;
-            n = n << 1;
+            n <<= 1;
         }
         count
     }
@@ -107,28 +107,6 @@ impl IpV4Network {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_ip_net_creation() {
-        let net16 = IpV4Network { net: [192, 168, 0, 0], mask: [255, 255, 0, 0] };
-        let net24 = IpV4Network { net: [192, 168, 34, 0], mask: [255, 255, 255, 0] };
-
-        assert_eq!(net16.mask_in_cidr_notation(), 16);
-        assert_eq!(net24.mask_in_cidr_notation(), 24);
-        assert_eq!(net16.contains_subnet(&net24), true);
-        assert_eq!(net16.address_space_size(), 256 * 256);
-        assert_eq!(net24.address_space_size(), 256);
-        assert_eq!(IpV4Network::from_address(&[192, 168, 34, 2], &[255, 255, 255, 0]), net24);
-        assert_eq!(IpV4Network::from_address_cidr(&[192, 168, 34, 2], 24), net24);
-        assert_eq!(IpV4Network::num_high_one_bits(0b1111_1100), 6);
-        assert_eq!(IpV4Network::num_high_one_bits(0b1110_0000), 3);
-    }
-}
-
-
 fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_coverage_percentage: f32) -> HashSet<IpV4Network> {
 
     // fill higher nets, remove duplicates:
@@ -143,7 +121,7 @@ fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_co
 
     // fill/sort higher nets by size, large ones first (smallest netmask)
     let mut larger_nets_sorted_top_down: Vec<IpV4Network> = potential_higher_nets.into_iter().collect();
-    larger_nets_sorted_top_down.sort_by(|a, b| a.mask_in_cidr_notation().cmp(&b.mask_in_cidr_notation()));
+    larger_nets_sorted_top_down.sort_by_key(|a| a.mask_in_cidr_notation());
     let mut larger_nets_sorted_top_down: VecDeque<IpV4Network> = larger_nets_sorted_top_down.into_iter().collect();
 
     // to compute the result, lets begin with all found class_c_nets
@@ -159,7 +137,7 @@ fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_co
             None => panic!()
         };
 
-        let matching_class_c_nets: HashSet<&IpV4Network> = class_c_networks.borrow().into_iter()
+        let matching_class_c_nets: HashSet<&IpV4Network> = class_c_networks.borrow().iter()
             .filter(|e| larger_net.contains_subnet(e))
             .collect();
 
@@ -172,8 +150,7 @@ fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_co
         }
     }
 
-
-    return result;
+    result
 }
 
 impl fmt::Display for IpV4Network {
@@ -186,7 +163,7 @@ fn mark_class_c_nets(addresses: &HashSet<[u8; 4]>, hits_needed: u8) -> HashSet<I
     let mut potential_subnets: HashMap<IpV4Network, u8> = HashMap::new();
     const MASK: [u8; 4] = [255, 255, 255, 0];
     for ip in addresses {
-        let net = IpV4Network::from_address(&ip, &MASK);
+        let net = IpV4Network::from_address(ip, &MASK);
         *potential_subnets.entry(net).or_insert(0) += 1;
     }
 
@@ -216,7 +193,7 @@ fn parse_ipv4_addresses(raw_addresses: Vec<String>) -> Result<HashSet<[u8; 4]>, 
 
 fn parse_ipv4(ip: &str) -> Result<[u8; 4], String> {
     let mut result: [u8; 4] = [0; 4];
-    let parts: Vec<&str> = ip.split(".").collect();
+    let parts: Vec<&str> = ip.split('.').collect();
     if parts.len() != 4 {
         return Err("not 4 parts separated by a '.'".to_string());
     }
@@ -236,7 +213,7 @@ fn read_stdin() -> Vec<String> {
     for line in stdin.lock().lines() {
         result.push(line.expect("unable to read input line"));
     }
-    return result;
+    result
 }
 
 #[derive(Debug, StructOpt)]
@@ -251,8 +228,8 @@ struct Cli {
     larger_net_select_coverage_percentage: f32,
 }
 
-// Commandline tool which takes a list of IP V4 addresses as input and returns a list of subnets,
-// from which multiple IP addresses come from, in order to identify attacking network segments
+/// Aggregates a bunch of IP addresses into a list of subnets.
+/// A subnet is considered only, if the threshold number of IPs per subnet is reached.
 fn main() {
     let options: Cli = Cli::from_args();
     if options.verbose { println!("{:?}", options); }
@@ -278,5 +255,29 @@ fn main() {
     }
     for net in collected_networks {
         println!("{}", net)
+    }
+}
+
+
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_ip_net_creation() {
+        let net16 = IpV4Network { net: [192, 168, 0, 0], mask: [255, 255, 0, 0] };
+        let net24 = IpV4Network { net: [192, 168, 34, 0], mask: [255, 255, 255, 0] };
+
+        assert_eq!(net16.mask_in_cidr_notation(), 16);
+        assert_eq!(net24.mask_in_cidr_notation(), 24);
+        assert!(net16.contains_subnet(&net24));
+        assert_eq!(net16.address_space_size(), 256 * 256);
+        assert_eq!(net24.address_space_size(), 256);
+        assert_eq!(IpV4Network::from_address(&[192, 168, 34, 2], &[255, 255, 255, 0]), net24);
+        assert_eq!(IpV4Network::from_address_cidr(&[192, 168, 34, 2], 24), net24);
+        assert_eq!(IpV4Network::num_high_one_bits(0b1111_1100), 6);
+        assert_eq!(IpV4Network::num_high_one_bits(0b1110_0000), 3);
     }
 }
