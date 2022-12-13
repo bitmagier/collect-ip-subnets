@@ -52,7 +52,9 @@ impl IpV4Network {
         for i in 0..=3 {
             let bits = IpV4Network::num_high_one_bits(self.mask[i]);
             network_bits += bits;
-            if bits < 8 { break; }
+            if bits < 8 {
+                break
+            }
         }
         network_bits
     }
@@ -97,7 +99,9 @@ impl IpV4Network {
             }
         }
 
-        if mask_cidr > 32 { panic!("invalid cidr mask {}", mask_cidr); }
+        if mask_cidr > 32 {
+            panic!("invalid cidr mask {}", mask_cidr);
+        }
         let c0 = mask_cidr.min(8);
         let c1 = (mask_cidr as i8 - 8).max(0).min(8) as u8;
         let c2 = (mask_cidr as i8 - 16).max(0).min(8) as u8;
@@ -111,7 +115,7 @@ fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_co
 
     // fill higher nets, remove duplicates:
 
-    // all available higher nets (lets say 255.0.0.0 as a upper bound) covering these class_c_networks
+    // all available higher nets (lets take 255.0.0.0 as a upper bound) covering these class_c_networks
     let mut potential_higher_nets: HashSet<IpV4Network> = HashSet::new();
     for c in &class_c_networks {
         for mask in (8..c.mask_in_cidr_notation()).rev() {
@@ -179,9 +183,9 @@ fn mark_class_c_nets(addresses: &HashSet<[u8; 4]>, hits_needed: u8) -> HashSet<I
 fn parse_ipv4_addresses(raw_addresses: Vec<String>) -> Result<HashSet<[u8; 4]>, String> {
     let mut result = HashSet::with_capacity(raw_addresses.len());
 
-    for a in raw_addresses.iter() {
-        if !a.is_empty() {
-            match parse_ipv4(a) {
+    for s in &raw_addresses {
+        if !s.is_empty() {
+            match parse_ipv4(s) {
                 Ok(a) => result.insert(a),
                 Err(error) => return Err(error)
             };
@@ -195,7 +199,7 @@ fn parse_ipv4(ip: &str) -> Result<[u8; 4], String> {
     let mut result: [u8; 4] = [0; 4];
     let parts: Vec<&str> = ip.split('.').collect();
     if parts.len() != 4 {
-        return Err("not 4 parts separated by a '.'".to_string());
+        return Err("found something else than 4 parts separated by a '.'".to_string());
     }
     for i in 0..=3 {
         result[i] =
@@ -257,8 +261,6 @@ fn main() {
         println!("{}", net)
     }
 }
-
-
 
 
 #[cfg(test)]
