@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::io::{self, BufRead};
 
-use structopt::StructOpt;
+use clap::Parser;
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 struct IpV4Network {
@@ -220,23 +220,24 @@ fn read_stdin() -> Vec<String> {
     result
 }
 
-#[derive(Debug, StructOpt)]
-struct Cli {
-    #[structopt(short, long)]
+#[derive(clap::Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
     verbose: bool,
 
-    #[structopt(short = "c", long = "threshold_class_c", default_value = "3")]
+    #[arg(short = 'c', long = "threshold_class_c", default_value = "3")]
     threshold_class_c: u8,
 
-    #[structopt(short = "l", long = "larger_net_pct", default_value = "0.51")]
+    #[arg(short = 'l', long = "larger_net_pct", default_value = "0.51")]
     larger_net_select_coverage_percentage: f32,
 }
 
 /// Aggregates a bunch of IP addresses into a list of subnets.
 /// A subnet is considered only, if the threshold number of IPs per subnet is reached.
 fn main() {
-    let options: Cli = Cli::from_args();
-    if options.verbose { println!("{:?}", options); }
+    let args: Args = Args::parse();
+    if args.verbose { println!("{:?}", args); }
 
     let input = read_stdin();
 
@@ -245,16 +246,16 @@ fn main() {
         Err(e) => panic!("parse failed: {}", e)
     };
 
-    if options.verbose {
+    if args.verbose {
         println!("Analyzing {:?} addresses...", addresses.len());
-        println!("To select a class C (/24) net, it takes {} IP corresponding addresses", options.threshold_class_c);
-        println!("To select a higher class net (/23 upwards), it takes {} percent of contained class-c nets", options.larger_net_select_coverage_percentage);
+        println!("To select a class C (/24) net, it takes {} IP corresponding addresses", args.threshold_class_c);
+        println!("To select a higher class net (/23 upwards), it takes {} percent of contained class-c nets", args.larger_net_select_coverage_percentage);
     }
 
-    let class_c_networks: HashSet<IpV4Network> = mark_class_c_nets(&addresses, options.threshold_class_c);
-    let collected_networks: HashSet<IpV4Network> = collect_networks(class_c_networks, options.larger_net_select_coverage_percentage);
+    let class_c_networks: HashSet<IpV4Network> = mark_class_c_nets(&addresses, args.threshold_class_c);
+    let collected_networks: HashSet<IpV4Network> = collect_networks(class_c_networks, args.larger_net_select_coverage_percentage);
 
-    if options.verbose {
+    if args.verbose {
         println!("Identified networks:")
     }
     for net in collected_networks {
