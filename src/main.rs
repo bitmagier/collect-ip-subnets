@@ -115,7 +115,7 @@ fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_co
 
     // fill higher nets, remove duplicates:
 
-    // all available higher nets (lets take 255.0.0.0 as a upper bound) covering these class_c_networks
+    // all available higher nets (lets take 255.0.0.0 as an upper bound) covering these class_c_networks
     let mut potential_higher_nets: HashSet<IpV4Network> = HashSet::new();
     for c in &class_c_networks {
         for mask in (8..c.mask_in_cidr_notation()).rev() {
@@ -134,7 +134,6 @@ fn collect_networks(class_c_networks: HashSet<IpV4Network>, larger_net_select_co
     // go through sorted list of higher nets one by one and check if the condition (number of contained class_c_networks reached net_elect_percentage) is met
     // if not, then forget about the net
     // if so, then put this net into result-set and also remove all matching class_c_networks from result-set
-    //for higher_net in larger_nets_sorted_top_down {
     while !larger_nets_sorted_top_down.is_empty() {
         let larger_net = match larger_nets_sorted_top_down.pop_front() {
             Some(e) => e,
